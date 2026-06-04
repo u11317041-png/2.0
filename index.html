@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雙語互動繪本 - 幫小熊買水果與算數</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        .font-en-storybook {
+            font-family: 'Fredoka', sans-serif;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes popIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+        @keyframes pageFlip {
+            0% { transform: rotateY(0deg); opacity: 1; }
+            50% { transform: rotateY(-90deg); opacity: 0.5; }
+            100% { transform: rotateY(0deg); opacity: 1; }
+        }
+        @keyframes confettiFall {
+            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+        }
+        @keyframes shakeError {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-5px); }
+            40%, 80% { transform: translateX(5px); }
+        }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        .animate-pop-in { animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        .animate-page-flip { animation: pageFlip 0.6s ease-in-out forwards; transform-style: preserve-3d; }
+        .animate-confetti { animation: confettiFall linear forwards; position: absolute; z-index: 60; }
+        .animate-shake { animation: shakeError 0.4s ease-in-out; }
+        
+        .storybook-shadow {
+            box-shadow: 0 30px 60px -12px rgba(139, 92, 26, 0.25), 
+                        0 18px 36px -18px rgba(0, 0, 0, 0.3), 
+                        inset 0 0 20px rgba(0,0,0,0.02);
+        }
+        body { -webkit-tap-highlight-color: transparent; }
+    </style>
+</head>
+<body class="bg-[#FDF8E7] min-h-screen flex items-center justify-center p-4">
+    <div id="root" class="w-full max-w-5xl"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Confetti = () => {
+            const pieces = Array.from({ length: 30 }).map((_, i) => ({
+                id: i,
+                left: `${Math.random() * 100}%`,
+                animationDuration: `${Math.random() * 1.5 + 1.5}s`,
+                animationDelay: `${Math.random() * 0.2}s`,
+                backgroundColor: ['#FF3D00', '#FFD600', '#4CAF50', '#2196F3', '#9C27B0'][Math.floor(Math.random() * 5)]
+            }));
+
+            return (
+                <div className="absolute inset-0 pointer-events-none overflow-hidden z-40 rounded-[24px]">
+                    {pieces.map(p => (
+                        <div key={p.id} className="absolute top-[-20px] w-2.5 h-3.5 animate-confetti rounded-sm shadow-sm"
+                            style={{ left: p.left, backgroundColor: p.backgroundColor, animationDuration: p.animationDuration, animationDelay: p.animationDelay }}
+                        />
+                    ))}
+                </div>
+            );
+        };
+
+        // --- 優化：更擬真的 SVG 水果路徑 ---
+        const COLOR_LEVELS = [
+            { 
+                id: 1, targetColors: ['#FF3D00'], objectName: { zh: '蘋果', en: 'Apple' },
+                storyZh: '熊媽媽想做蘋果派，請小熊去買紅色的蘋果。',
+                storyEn: 'Mama Bear wants to make a pie. She asked Little Bear to buy red apples.',
+                // 擬真蘋果形狀：頂部凹陷，底部收窄
+                path: "M 100,50 C 130,30 160,60 150,110 C 140,160 110,170 100,160 C 90,170 60,160 50,110 C 40,60 70,30 100,50 Z"
+            },
+            { 
+                id: 2, targetColors: ['#4CAF50'], objectName: { zh: '樹葉', en: 'Leaf' },
+                storyZh: '蘋果上需要有新鮮的綠色樹葉！',
+                storyEn: 'The apples need fresh green leaves on them!',
+                // 擬真樹葉形狀：有機弧度
+                path: "M 100,20 C 150,50 160,130 100,180 C 40,130 50,50 100,20 Z"
+            },
+            { 
+                id: 3, targetColors: ['#FFD600'], objectName: { zh: '香蕉', en: 'Banana' },
+                storyZh: '接著，熊媽媽請小熊尋找甜甜的黃色香蕉。',
+                storyEn: 'Next, Mama Bear asked Little Bear to find sweet yellow bananas.',
+                // 擬真香蕉彎曲度
+                path: "M 160,30 C 170,80 140,160 80,180 C 40,190 20,160 40,130 C 70,140 120,130 130,50 C 135,20 155,10 160,30 Z"
+            },
+            { 
+                id: 4, targetColors: ['#FF9800'], objectName: { zh: '橘子', en: 'Orange' },
+                storyZh: '小熊還需要買多汁的橘色橘子！',
+                storyEn: 'Little Bear also needs to buy juicy orange oranges!',
+                // 橘子：不是完美的圓，頂部微平
+                path: "M 100,45 C 140,45 165,70 165,105 C 165,140 140,165 100,165 C 60,165 35,140 35,105 C 35,70 60,45 100,45 Z"
+            },
+            { 
+                id: 5, targetColors: ['#9C27B0'], objectName: { zh: '葡萄', en: 'Grapes' },
+                storyZh: '最後是熊媽媽最喜歡的紫色葡萄。',
+                storyEn: 'Finally, Mama Bear\'s favorite purple grapes.',
+                // 葡萄串連接路徑
+                path: "M 100,50 A 15,15 0 1,1 99.9,50 M 85,75 A 15,15 0 1,1 84.9,75 M 115,75 A 15,15 0 1,1 114.9,75 M 70,100 A 15,15 0 1,1 69.9,100 M 100,100 A 15,15 0 1,1 99.9,100 M 130,100 A 15,15 0 1,1 129.9,100 M 85,125 A 15,15 0 1,1 84.9,125 M 115,125 A 15,15 0 1,1 114.9,125 M 100,150 A 15,15 0 1,1 99.9,150"
+            }
+        ];
+
+        // --- 擴充：5個採摘關卡 ---
+        const COUNT_LEVELS = [
+            { id: 1, targetCount: 3, emoji: '🍎', objectName: { zh: '蘋果', en: 'apples' }, storyZh: '小熊來到果園，請幫他把 3 顆蘋果放進籃子！', storyEn: 'Help him put 3 apples into the basket!', positions: [ {x:20, y:15}, {x:45, y:10}, {x:70, y:15}, {x:15, y:35}, {x:38, y:28}, {x:60, y:25}, {x:78, y:35}, {x:28, y:48}, {x:50, y:46}, {x:72, y:48} ] },
+            { id: 2, targetCount: 5, emoji: '🍊', objectName: { zh: '橘子', en: 'oranges' }, storyZh: '做得好！現在小熊需要採 5 顆橘子。', storyEn: 'Now Little Bear needs to pick 5 oranges.', positions: [ {x:25, y:12}, {x:50, y:8}, {x:75, y:18}, {x:18, y:30}, {x:42, y:25}, {x:65, y:28}, {x:82, y:32}, {x:32, y:45}, {x:55, y:42}, {x:75, y:48} ] },
+            { id: 3, targetCount: 4, emoji: '🍇', objectName: { zh: '葡萄', en: 'grapes' }, storyZh: '請幫小熊收集 4 串葡萄帶回家！', storyEn: 'Help Little Bear collect 4 bunches of grapes!', positions: [ {x:22, y:18}, {x:48, y:12}, {x:68, y:15}, {x:12, y:32}, {x:35, y:26}, {x:58, y:22}, {x:76, y:35}, {x:25, y:46}, {x:48, y:44}, {x:70, y:45} ] },
+            { id: 4, targetCount: 6, emoji: '🍓', objectName: { zh: '草莓', en: 'strawberries' }, storyZh: '哇，好香的草莓！請幫小熊採 6 顆。', storyEn: 'Wow, sweet strawberries! Pick 6 for him.', positions: [ {x:15, y:20}, {x:40, y:15}, {x:65, y:12}, {x:85, y:25}, {x:25, y:35}, {x:50, y:30}, {x:75, y:38}, {x:10, y:45}, {x:35, y:48}, {x:60, y:45} ] },
+            { id: 5, targetCount: 4, emoji: '🍑', objectName: { zh: '水蜜桃', en: 'peaches' }, storyZh: '最後，請找 4 顆粉嫩的水蜜桃！', storyEn: 'Finally, find 4 pink peaches!', positions: [ {x:28, y:15}, {x:55, y:10}, {x:80, y:20}, {x:18, y:28}, {x:45, y:25}, {x:70, y:32}, {x:25, y:45}, {x:50, y:42}, {x:75, y:48}, {x:90, y:35} ] }
+        ];
+
+        // --- 全新：5個數學加減法關卡 ---
+        const MATH_LEVELS = [
+            { id: 1, type: '+', fruit: '🍎', a: 2, b: 1, ans: 3, options: [2, 3, 4], storyZh: '小熊買了 2 顆蘋果，媽媽又給了他 1 顆，現在總共有幾顆？', storyEn: 'Little bear bought 2 apples, and Mama gave 1 more. How many in total?' },
+            { id: 2, type: '+', fruit: '🍌', a: 3, b: 2, ans: 5, options: [4, 5, 6], storyZh: '有 3 根香蕉，又找到了 2 根香蕉，加起來是多少呢？', storyEn: '3 bananas plus 2 bananas. How many is that?' },
+            { id: 3, type: '-', fruit: '🍊', a: 4, b: 1, ans: 3, options: [2, 3, 5], storyZh: '籃子裡有 4 顆橘子，小熊吃掉了 1 顆，還剩下幾顆？', storyEn: 'There were 4 oranges. Little bear ate 1. How many are left?' },
+            { id: 4, type: '-', fruit: '🍓', a: 5, b: 2, ans: 3, options: [2, 3, 4], storyZh: '原本有 5 顆草莓，分給好朋友 2 顆，現在剩幾顆？', storyEn: 'Had 5 strawberries, shared 2 with a friend. How many are left?' },
+            { id: 5, type: '+', fruit: '🍑', a: 2, b: 2, ans: 4, options: [3, 4, 5], storyZh: '左邊有 2 顆水蜜桃，右邊也有 2 顆，合在一起是幾顆？', storyEn: '2 peaches on the left, 2 on the right. How many together?' }
+        ];
+
+        const COLORS = [
+            { zh: '紅色', en: 'Red', code: '#FF3D00' }, { zh: '黃色', en: 'Yellow', code: '#FFD600' },
+            { zh: '綠色', en: 'Green', code: '#4CAF50' }, { zh: '藍色', en: 'Blue', code: '#2196F3' },
+            { zh: '橘色', en: 'Orange', code: '#FF9800' }, { zh: '紫色', en: 'Purple', code: '#9C27B0' }
+        ];
+
+        const App = () => {
+            const [hasStarted, setHasStarted] = useState(false);
+            const [gameStage, setGameStage] = useState('color'); // 'color', 'count', 'math', 'end'
+            const [levelIdx, setLevelIdx] = useState(0);
+            const [isCompleted, setIsCompleted] = useState(false);
+            const [isFlipping, setIsFlipping] = useState(false);
+            
+            // 狀態區
+            const [coverage, setCoverage] = useState(0);
+            const [isDrawing, setIsDrawing] = useState(false);
+            const [selectedColor, setSelectedColor] = useState(null);
+            const [pointerPos, setPointerPos] = useState(null);
+            
+            const [basketCount, setBasketCount] = useState(0);
+            const [droppedFruits, setDroppedFruits] = useState([]); 
+            
+            const [mathErrorShake, setMathErrorShake] = useState(false);
+
+            const canvasRef = useRef(null);
+            const maskCanvasRef = useRef(null);
+            const ctxRef = useRef(null);
+            const lastPos = useRef({ x: 0, y: 0 });
+
+            const currentLevel = gameStage === 'color' ? COLOR_LEVELS[levelIdx] : 
+                                 gameStage === 'count' ? COUNT_LEVELS[levelIdx] : 
+                                 gameStage === 'math' ? MATH_LEVELS[levelIdx] : null;
+
+            const totalPages = COLOR_LEVELS.length + COUNT_LEVELS.length + MATH_LEVELS.length;
+            const currentGlobalPage = gameStage === 'color' ? levelIdx + 1 : 
+                                      gameStage === 'count' ? COLOR_LEVELS.length + levelIdx + 1 : 
+                                      gameStage === 'math' ? COLOR_LEVELS.length + COUNT_LEVELS.length + levelIdx + 1 : totalPages;
+
+            const speakBilingual = (zhText, enText) => {
+                if ('speechSynthesis' in window) {
+                    if (window.__zhUtterance) window.__zhUtterance.onend = null;
+                    window.speechSynthesis.cancel();
+                    
+                    const zhUtterance = new SpeechSynthesisUtterance(zhText);
+                    zhUtterance.lang = 'zh-TW'; zhUtterance.rate = 0.9;
+                    window.__zhUtterance = zhUtterance; 
+
+                    if (enText) {
+                        const enUtterance = new SpeechSynthesisUtterance(enText);
+                        enUtterance.lang = 'en-US'; enUtterance.rate = 0.9;
+                        zhUtterance.onend = () => window.speechSynthesis.speak(enUtterance);
+                    }
+                    window.speechSynthesis.speak(zhUtterance);
+                }
+            };
+
+            const speakQuestion = () => {
+                if (!hasStarted || !currentLevel) return;
+                let zh = currentLevel.storyZh;
+                let en = currentLevel.storyEn;
+                if (gameStage === 'color') {
+                    zh += ' 你能幫小熊畫上正確的顏色嗎？';
+                    en += ' Can you help Little Bear color it?';
+                }
+                speakBilingual(zh, en);
+            };
+
+            useEffect(() => {
+                if (!hasStarted) return;
+                if (gameStage === 'color') { initCanvas(); setCoverage(0); } 
+                else if (gameStage === 'count') { setBasketCount(0); setDroppedFruits([]); }
+                
+                setIsCompleted(false);
+                setSelectedColor(null); 
+                
+                const timer = setTimeout(() => speakQuestion(), 300);
+                return () => clearTimeout(timer);
+            }, [levelIdx, gameStage, hasStarted]);
+
+            const handleNextLevel = () => {
+                if (isFlipping) return;
+                setIsFlipping(true);
+                setTimeout(() => {
+                    if (gameStage === 'color') {
+                        if (levelIdx + 1 < COLOR_LEVELS.length) setLevelIdx(levelIdx + 1);
+                        else { setGameStage('count'); setLevelIdx(0); }
+                    } else if (gameStage === 'count') {
+                        if (levelIdx + 1 < COUNT_LEVELS.length) setLevelIdx(levelIdx + 1);
+                        else { setGameStage('math'); setLevelIdx(0); }
+                    } else if (gameStage === 'math') {
+                        if (levelIdx + 1 < MATH_LEVELS.length) setLevelIdx(levelIdx + 1);
+                        else { setGameStage('end'); }
+                    }
+                    setIsFlipping(false);
+                }, 300);
+            };
+
+            // --- Canvas 著色核心 ---
+            const initCanvas = () => {
+                if (gameStage !== 'color' || !canvasRef.current) return;
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+                ctxRef.current = ctx;
+                ctx.clearRect(0, 0, 200, 200);
+
+                const mCanvas = document.createElement('canvas');
+                mCanvas.width = 200; mCanvas.height = 200;
+                maskCanvasRef.current = mCanvas;
+                const mCtx = mCanvas.getContext('2d');
+                mCtx.clearRect(0, 0, 200, 200);
+                mCtx.fillStyle = '#000000';
+                mCtx.fill(new Path2D(currentLevel.path));
+            };
+
+            const getPos = (e) => {
+                const rect = canvasRef.current.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return { x: (clientX - rect.left) * (200 / rect.width), y: (clientY - rect.top) * (200 / rect.height) };
+            };
+
+            const drawSegment = (x1, y1, x2, y2) => {
+                const ctx = ctxRef.current;
+                ctx.save();
+                ctx.beginPath();
+                ctx.clip(new Path2D(currentLevel.path)); 
+                ctx.globalAlpha = 0.85; ctx.lineWidth = 26; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                ctx.strokeStyle = selectedColor.code;
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+                ctx.stroke();
+                ctx.restore();
+            };
+
+            const handleStart = (e) => {
+                if (isCompleted || !selectedColor) {
+                    if (!selectedColor) speakBilingual("請先幫小熊選一個彩筆喔！", "Please choose a color!");
+                    return;
+                }
+                if (!currentLevel.targetColors.includes(selectedColor.code)) {
+                    speakBilingual(`小熊媽媽說${currentLevel.objectName.zh}不是${selectedColor.zh}的！`, `Mama Bear said ${currentLevel.objectName.en} is not ${selectedColor.en}!`);
+                    return;
+                }
+                setIsDrawing(true);
+                const pos = getPos(e); lastPos.current = pos; setPointerPos(pos);
+                drawSegment(pos.x, pos.y, pos.x, pos.y);
+            };
+
+            const handleMove = (e) => {
+                if (!isDrawing) return;
+                const pos = getPos(e);
+                drawSegment(lastPos.current.x, lastPos.current.y, pos.x, pos.y);
+                lastPos.current = pos; setPointerPos(pos);
+            };
+
+            const handleEnd = () => {
+                if (!isDrawing) return;
+                setIsDrawing(false); setPointerPos(null);
+                const drawData = ctxRef.current.getImageData(0,0,200,200).data;
+                const maskData = maskCanvasRef.current.getContext('2d').getImageData(0,0,200,200).data;
+                let total = 0, colored = 0;
+                for (let i = 0; i < maskData.length; i += 4) {
+                    if (maskData[i+3] > 0) { total++; if (drawData[i+3] > 50) colored++; }
+                }
+                const percent = total > 0 ? (colored / total) * 100 : 0;
+                setCoverage(percent);
+                if (percent >= 65 && !isCompleted) {
+                    setIsCompleted(true);
+                    speakBilingual(`太棒了！完美的${selectedColor.zh}${currentLevel.objectName.zh}！可以翻到下一頁囉！`, `Wonderful! A perfect ${selectedColor.en} ${currentLevel.objectName.en}!`);
+                }
+            };
+
+            // --- 採摘點擊 ---
+            const handleFruitClick = (index) => {
+                if (isCompleted || droppedFruits.includes(index)) return;
+                const nextCount = basketCount + 1;
+                if (nextCount > currentLevel.targetCount) {
+                    speakBilingual("哎呀！小熊拿錯數量了！", "Oops! Little Bear picked too many!");
+                    setBasketCount(0); setDroppedFruits([]); return;
+                }
+                setDroppedFruits([...droppedFruits, index]);
+                setBasketCount(nextCount);
+                speakBilingual(`${nextCount}`, `${nextCount}`);
+
+                if (nextCount === currentLevel.targetCount) {
+                    setIsCompleted(true);
+                    speakBilingual(`成功買到了 ${currentLevel.targetCount} 顆${currentLevel.objectName.zh}！翻頁吧！`, `Great! We got ${currentLevel.targetCount} ${currentLevel.objectName.en}!`);
+                }
+            };
+
+            // --- 算數解答 ---
+            const handleMathAnswer = (ans) => {
+                if (isCompleted) return;
+                if (ans === currentLevel.ans) {
+                    setIsCompleted(true);
+                    speakBilingual(`答對了！就是 ${ans} 顆！`, `Correct! It is ${ans}!`);
+                } else {
+                    setMathErrorShake(true);
+                    speakBilingual("哎呀，好像不對喔，我們再數一次！", "Oops, let's count again!");
+                    setTimeout(() => setMathErrorShake(false), 500);
+                }
+            };
+
+            // 繪製著色關卡的輔助線與細節(果梗/葉子)
+            const renderLevelDetails = (id) => {
+                if (id === 1) return (
+                    <g fill="none" stroke="#2D3436" strokeWidth="2.5">
+                        <path d="M100,50 Q110,20 115,10" stroke="#795548" strokeWidth="4" strokeLinecap="round" />
+                        <path d="M115,10 Q145,-5 145,25 Q120,35 115,10" fill="#4CAF50" strokeWidth="2" />
+                    </g>
+                );
+                if (id === 2) return (
+                    <g fill="none" stroke="#2D3436" strokeWidth="1.5" opacity="0.3">
+                        <path d="M100,20 L100,180" /><path d="M100,60 L135,90 M100,100 L140,130 M100,140 L130,165" /><path d="M100,60 L65,90 M100,100 L60,130 M100,140 L70,165" />
+                    </g>
+                );
+                if (id === 3) return (
+                    <g fill="none" stroke="#2D3436" strokeWidth="2.5">
+                        <path d="M160,30 L165,15" stroke="#795548" strokeWidth="6" strokeLinecap="round" />
+                        <path d="M40,190 L35,195" stroke="#5D4037" strokeWidth="5" strokeLinecap="round" />
+                    </g>
+                );
+                if (id === 4) return (
+                    <g fill="none" stroke="#2D3436" strokeWidth="2.5">
+                        <circle cx="100" cy="43" r="2.5" fill="#2D3436" />
+                        <path d="M100,43 Q120,20 135,30 Q115,35 100,43" fill="#4CAF50" strokeWidth="2" />
+                        <circle cx="65" cy="100" r="1.5" fill="#2D3436" opacity="0.2" />
+                        <circle cx="75" cy="140" r="1.5" fill="#2D3436" opacity="0.2" />
+                        <circle cx="135" cy="110" r="1.5" fill="#2D3436" opacity="0.2" />
+                    </g>
+                );
+                return null;
+            };
+
+            // --- 封面 ---
+            if (!hasStarted) return (
+                <div className="bg-white p-8 rounded-[32px] storybook-shadow text-center max-w-sm border-[10px] border-[#D1A153] animate-pop-in relative">
+                    <div className="absolute top-0 left-0 w-full h-32 bg-amber-50 -z-10 rounded-b-full"></div>
+                    <div className="text-[80px] mb-2 drop-shadow-md">🐻</div>
+                    <h1 className="text-3xl font-black text-amber-900 mb-4 tracking-wider">雙語互動繪本</h1>
+                    <div className="bg-amber-500 text-white text-xl font-bold py-1 px-4 rounded-full inline-block mb-4">幫小熊買水果</div>
+                    <p className="text-gray-600 font-bold text-base mb-8 leading-relaxed">小熊媽媽請小熊去買水果，<br/>但他不太會認顏色和算數...<br/><span className="text-amber-600">你可以翻開書本幫幫他嗎？</span></p>
+                    <button onClick={() => setHasStarted(true)} className="bg-amber-600 text-white text-lg font-black py-4 px-8 rounded-2xl shadow-[0_5px_0_#78350f] hover:bg-amber-500 active:translate-y-[4px] active:shadow-none transition-all w-full flex justify-center items-center gap-2">📖 翻開繪本 ➔</button>
+                </div>
+            );
+
+            // --- 結局 ---
+            if (gameStage === 'end') return (
+                <div className="bg-white p-8 rounded-[32px] storybook-shadow text-center max-w-md border-[10px] border-[#D1A153] animate-pop-in">
+                    <div className="text-[70px] mb-2 drop-shadow-md">🎉 🚗 🐻</div>
+                    <h1 className="text-3xl font-black text-green-600 mb-4 tracking-wider">快樂的大結局</h1>
+                    <p className="text-gray-700 font-bold text-lg mb-3">熊媽媽非常開心小熊完成了跑腿與算數！<br/><span className="text-rose-500">她送給小熊一台玩具小汽車！</span></p>
+                    <button onClick={() => { setGameStage('color'); setLevelIdx(0); }} className="bg-green-600 text-white text-lg font-black py-4 px-8 rounded-2xl shadow-[0_5px_0_#166534] hover:bg-green-500 active:translate-y-[4px] active:shadow-none transition-all w-full mt-6">🔄 重讀故事繪本</button>
+                    <Confetti />
+                </div>
+            );
+
+            return (
+                <div className="w-full flex flex-col items-center font-sans select-none">
+                    <div className={`w-full bg-[#FCF8EE] rounded-[24px] storybook-shadow border-4 border-[#B8862B] relative flex flex-col md:flex-row overflow-hidden transition-all duration-500 ${isFlipping ? 'animate-page-flip' : ''}`}>
+                        
+                        {/* 繪本立體書脊 */}
+                        <div className="absolute top-0 bottom-0 left-1/2 w-[3px] bg-gradient-to-r from-black/10 via-black/20 to-transparent z-30 hidden md:block" />
+                        <div className="absolute top-0 bottom-0 left-1/2 w-[15px] -translate-x-1/2 bg-gradient-to-r from-black/5 via-transparent to-black/5 z-30 hidden md:block" />
+
+                        {/* ================= 左書頁 ================= */}
+                        <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col justify-between bg-[#FDFBF7] relative border-b-2 md:border-b-0 md:border-r border-amber-100/60">
+                            <div className="text-xs font-bold text-amber-800/40 font-en-storybook mb-4">PAGE {currentGlobalPage} OF {totalPages}</div>
+
+                            <div className="flex-1 flex flex-col justify-center items-center text-center">
+                                <div className="text-5xl mb-3 animate-bounce">🐻👩</div>
+                                <div className="bg-amber-50 border-2 border-amber-200 rounded-3xl p-5 shadow-sm relative max-w-sm">
+                                    <h2 className="text-xl font-black text-gray-800 leading-relaxed">{currentLevel.storyZh}</h2>
+                                    <p className="font-en-storybook text-sm font-medium text-amber-700/60 mt-2 px-2">{currentLevel.storyEn}</p>
+                                    <button onClick={speakQuestion} className="absolute -right-3 -top-3 text-xl bg-white hover:bg-amber-100 p-2 rounded-full border border-amber-200 shadow-md active:scale-90 transition-transform">🔊</button>
+                                </div>
+                            </div>
+
+                            {/* 左頁底部控制區 */}
+                            <div className="mt-4 min-h-[120px] flex items-end">
+                                {gameStage === 'color' && (
+                                    <div className="w-full bg-white/80 rounded-2xl p-3 border border-amber-100 shadow-inner">
+                                        <div className="flex justify-center flex-wrap gap-2">
+                                            {COLORS.map(c => (
+                                                <button key={c.code} onClick={() => { setSelectedColor(c); speakBilingual(c.zh, currentLevel.targetColors.includes(c.code) ? c.en : ""); }}
+                                                    className={`flex flex-col items-center transition-all w-11 ${selectedColor?.code === c.code ? 'scale-110 -translate-y-1' : 'opacity-60 hover:opacity-100'}`}
+                                                >
+                                                    <div className="w-8 h-10 rounded-t-md rounded-b-xl border-2 border-white shadow-md" style={{backgroundColor: c.code}} />
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-3 bg-amber-50/50 p-2 rounded-xl text-xs">
+                                            <span className="font-bold text-amber-800 shrink-0">進度:</span>
+                                            <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden border border-gray-300"><div className="h-full bg-green-400 transition-all duration-300" style={{width: `${Math.min(100, (coverage/65)*100)}%`}}></div></div>
+                                            <button onClick={() => { initCanvas(); setCoverage(0); setIsCompleted(false); }} className="bg-red-100 text-red-600 px-2 py-1 rounded font-bold hover:bg-red-200">🔄 重填</button>
+                                        </div>
+                                    </div>
+                                )}
+                                {gameStage === 'count' && (
+                                    <div className="w-full text-center">
+                                        <button onClick={() => { setBasketCount(0); setDroppedFruits([]); setIsCompleted(false); }} className="bg-amber-100 text-amber-800 text-sm font-black py-2.5 px-6 rounded-xl hover:bg-amber-200 transition-all">🔄 數量拿錯了，重拿</button>
+                                    </div>
+                                )}
+                                {gameStage === 'math' && (
+                                    <div className="w-full text-center text-amber-600 font-bold text-lg animate-pulse">請在右邊選出正確的答案！</div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* ================= 右書頁 ================= */}
+                        <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col justify-between items-center bg-[#FDFDFB] relative">
+                            <div className="w-full h-8 flex justify-center items-center mb-2">
+                                {isCompleted && <div className="bg-green-100 text-green-700 font-black px-4 py-1 rounded-full text-sm animate-pop-in border border-green-300 shadow-sm">✨ 任務完成！請點選右下角翻頁 ➔</div>}
+                            </div>
+
+                            {/* 舞台區 */}
+                            <div className="relative w-full aspect-square max-w-[300px] bg-white rounded-[24px] border-4 border-amber-100/80 shadow-md overflow-hidden flex flex-col items-center justify-center p-0">
+                                
+                                {/* 著色模式 */}
+                                {gameStage === 'color' && (
+                                    <div className="relative w-[200px] h-[200px] flex items-center justify-center touch-none">
+                                        <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full pointer-events-none z-10"><path d={currentLevel.path} fill="#FAFAFA" stroke="#EAEAEA" strokeWidth="1" /></svg>
+                                        <div className="absolute inset-0 w-full h-full" style={{ clipPath: `path('${currentLevel.path}')`, WebkitClipPath: `path('${currentLevel.path}')`, zIndex: 20 }}>
+                                            <canvas ref={canvasRef} width="200" height="200" onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd} onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd} className="absolute inset-0 w-full h-full cursor-crosshair" />
+                                        </div>
+                                        {isDrawing && pointerPos && <div className="absolute pointer-events-none z-50 text-3xl" style={{ left: `${(pointerPos.x / 200) * 100}%`, top: `${(pointerPos.y / 200) * 100}%`, transform: 'translate(-10%, -90%)' }}>🖌️</div>}
+                                        <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 30 }}>
+                                            <path d={currentLevel.path} fill="none" stroke="#2D3436" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                            {renderLevelDetails(currentLevel.id)}
+                                        </svg>
+                                    </div>
+                                )}
+
+                                {/* 數數模式 - 半透明籃子 */}
+                                {gameStage === 'count' && (
+                                    <div className="relative w-full h-full flex flex-col justify-between items-center bg-blue-50/30">
+                                        {/* 果樹區 */}
+                                        <div className="relative w-full h-[65%] mt-2">
+                                            <svg viewBox="0 0 200 120" className="absolute inset-0 w-full h-full pointer-events-none opacity-90">
+                                                <path d="M 92,80 L 108,80 L 115,120 L 85,120 Z" fill="#8B5A2B" />
+                                                <circle cx="65" cy="50" r="40" fill="#2E7D32" /><circle cx="135" cy="50" r="40" fill="#2E7D32" /><circle cx="100" cy="35" r="45" fill="#43A047" />
+                                            </svg>
+                                            {currentLevel.positions.map((pos, idx) => {
+                                                const isPicked = droppedFruits.includes(idx);
+                                                return (
+                                                    <button key={idx} onClick={() => handleFruitClick(idx)}
+                                                        className={`absolute text-3xl p-1 transition-all duration-500 z-10 ${isPicked ? 'pointer-events-none opacity-0 scale-50' : 'hover:scale-110 cursor-pointer animate-pulse'}`}
+                                                        style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>{currentLevel.emoji}</button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* 半透明高質感籃子 */}
+                                        <div className="relative w-[80%] h-[30%] mb-3 flex flex-col justify-end">
+                                            {/* 底層水果 (帶有隨機傾斜) */}
+                                            <div className="absolute inset-0 z-10 flex flex-wrap items-end justify-center pb-2 px-4 gap-0.5 pointer-events-none">
+                                                {droppedFruits.map((fIdx, i) => (
+                                                    <span key={fIdx} className="text-[28px] animate-pop-in drop-shadow-sm inline-block" style={{ transform: `rotate(${(i * 17) % 40 - 20}deg)` }}>
+                                                        {currentLevel.emoji}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                            {/* 表層透明籃框 */}
+                                            <div className="absolute inset-0 z-20 pointer-events-none flex flex-col justify-end">
+                                                <div className="w-full h-[85%] border-b-[8px] border-x-[8px] border-amber-800/90 rounded-b-[2rem] bg-amber-600/10 relative overflow-hidden shadow-inner">
+                                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'linear-gradient(90deg, #8b4513 1.5px, transparent 1.5px), linear-gradient(0deg, #8b4513 1.5px, transparent 1.5px)', backgroundSize: '12px 12px' }} />
+                                                </div>
+                                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-20 h-10 border-[6px] border-amber-800/90 rounded-t-full border-b-0" />
+                                            </div>
+                                            <div className="absolute -bottom-2 right-0 bg-amber-900 text-white text-xs font-black px-2 py-0.5 rounded-full z-30 shadow-md">{basketCount} / {currentLevel.targetCount}</div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 數學關卡 */}
+                                {gameStage === 'math' && (
+                                    <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-yellow-50/50">
+                                        {/* 圖形化算式 */}
+                                        <div className="flex items-center justify-center gap-2 mb-8 text-4xl">
+                                            <div className="flex flex-wrap justify-center max-w-[80px]">
+                                                {Array.from({length: currentLevel.a}).map((_, i) => <span key={i} className="animate-pop-in drop-shadow-sm" style={{animationDelay: `${i*0.1}s`}}>{currentLevel.fruit}</span>)}
+                                            </div>
+                                            <div className="font-black text-gray-600 px-1">{currentLevel.type}</div>
+                                            <div className="flex flex-wrap justify-center max-w-[80px]">
+                                                {Array.from({length: currentLevel.b}).map((_, i) => <span key={i} className="animate-pop-in drop-shadow-sm" style={{animationDelay: `${i*0.1+0.3}s`}}>{currentLevel.fruit}</span>)}
+                                            </div>
+                                            <div className="font-black text-gray-600 px-1">=</div>
+                                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-3xl shadow-inner ${isCompleted ? 'bg-green-100 text-green-600 border-2 border-green-400' : 'bg-white text-gray-300 border-2 border-dashed border-gray-400'}`}>
+                                                {isCompleted ? currentLevel.ans : '?'}
+                                            </div>
+                                        </div>
+                                        {/* 數字選項按鈕 */}
+                                        <div className={`flex gap-4 ${mathErrorShake ? 'animate-shake' : ''}`}>
+                                            {currentLevel.options.map((opt, i) => (
+                                                <button key={i} onClick={() => handleMathAnswer(opt)} disabled={isCompleted}
+                                                    className={`w-16 h-16 rounded-2xl text-3xl font-black shadow-md transition-transform active:scale-95 ${isCompleted && opt === currentLevel.ans ? 'bg-green-500 text-white shadow-[0_4px_0_#166534]' : 'bg-white text-amber-900 border-2 border-amber-200 hover:bg-amber-50 shadow-[0_4px_0_#fde68a]'}`}
+                                                >{opt}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {isCompleted && <Confetti />}
+                            </div>
+
+                            <div className="w-full flex justify-end mt-4">
+                                <button onClick={handleNextLevel} disabled={!isCompleted}
+                                    className={`w-full py-4 px-6 rounded-2xl font-black text-lg flex justify-center items-center transition-all ${isCompleted ? 'bg-green-500 text-white shadow-[0_5px_0_#166534] hover:bg-green-400 hover:translate-y-1 hover:shadow-[0_2px_0_#166534] active:translate-y-2 active:shadow-none animate-bounce cursor-pointer' : 'bg-gray-100 text-gray-400 pointer-events-none shadow-none'}`}
+                                >下一頁 ➔</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
